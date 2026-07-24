@@ -183,8 +183,7 @@
 
         async function cargarDatos() {
             try {
-                let proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(URL_API)}`;
-                let respuesta = await fetch(proxyUrl);
+               let respuesta = await fetch(URL_API);
                 let datos = await respuesta.json();
 
                 let cantRep = datos.reportes.length;
