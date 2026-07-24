@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Central de Monitoreo - Alerta Ferreñafe</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 font-sans antialiased h-screen flex flex-col justify-between">
+
+    <!-- PANTALLA DE LOGIN -->
+    <div id="login-screen" class="fixed inset-0 bg-slate-900 flex justify-center items-center z-50">
+        <div class="bg-white p-8 rounded-2xl shadow-xl w-96 border border-slate-200">
+            <div class="text-center mb-6">
+                <h2 class="text-2xl font-bold text-slate-800">🚨 Central Alerta</h2>
+                <p class="text-sm text-slate-500 mt-1">Ingrese sus credenciales de acceso</p>
+            </div>
+            <form onsubmit="validarLogin(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold uppercase text-slate-600 mb-1">Usuario</label>
+                    <input type="text" id="usuario" required class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm" placeholder="Ingrese usuario">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase text-slate-600 mb-1">Contraseña</label>
+                    <input type="password" id="password" required class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm" placeholder="••••••">
+                </div>
+                <div id="error-msg" class="text-red-500 text-xs font-medium text-center hidden">Usuario o contraseña incorrectos.</div>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg font-semibold transition text-sm">
+                    Ingresar al Sistema
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- PANTALLA PRINCIPAL DE LA CENTRAL -->
+    <div id="dashboard-screen" class="hidden flex-col h-full">
+        <!-- Header -->
+        <header class="bg-slate-900 text-white shadow-md py-4 px-6 flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <h1 class="text-xl font-bold tracking-wide">🚨 Central de Monitoreo | Alerta Ferreñafe</h1>
+                <span id="badge-alerta" class="bg-red-500 text-white text-xs px-2.5 py-1 rounded-full font-bold hidden animate-pulse">¡NUEVA ALERTA!</span>
+            </div>
+            <div class="flex items-center space-x-3">
+                <button onclick="cambiarVista('reportes')" id="btn-tab-reportes" class="relative bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow">
+                    📋 Reportes <span id="num-rep" class="ml-1 bg-blue-800 px-2 py-0.5 rounded-full text-xs">0</span>
+                </button>
+                <button onclick="cambiarVista('panico')" id="btn-tab-panico" class="relative bg-slate-700 text-slate-300 px-4 py-2 rounded-lg text-sm font-semibold transition hover:bg-slate-600">
+                    🚨 Pánico <span id="num-pan" class="ml-1 bg-red-600 text-white px-2 py-0.5 rounded-full text-xs">0</span>
+                </button>
+                <button onclick="cargarDatos()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm font-semibold transition ml-4">
+                    🔄 Actualizar
+                </button>
+                <button onclick="cerrarSesion()" class="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm font-semibold transition">
+                    Salir
+                </button>
+            </div>
+        </header>
+
+        <!-- Contenido Dinámico -->
+        <main class="max-w-7xl mx-auto p-6 flex-1 w-full overflow-y-auto">
+            
+            <!-- SECCIÓN REPORTES -->
+            <div id="seccion-reportes" class="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200">
+                <div class="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                    <h2 class="text-lg font-semibold text-slate-800">📋 Historial de Reportes con Evidencia</h2>
+                    <span id="contador-reportes" class="text-sm text-slate-500 font-medium">Cargando...</span>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-100 text-slate-600 uppercase text-xs font-bold tracking-wider">
+                                <th class="p-4">Fecha y Hora</th>
+                                <th class="p-4">Ciudadano (DNI / Nombres)</th>
+                                <th class="p-4">Teléfono</th>
+                                <th class="p-4">Descripción</th>
+                                <th class="p-4 text-center">Ubicación GPS</th>
+                                <th class="p-4 text-center">Evidencia Fotográfica</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-reportes" class="divide-y divide-slate-100 text-sm text-slate-700"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- SECCIÓN PÁNICO -->
+            <div id="seccion-panico" class="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 hidden">
+                <div class="p-4 border-b border-slate-100 bg-red-50 flex justify-between items-center">
+                    <h2 class="text-lg font-semibold text-red-700">🚨 Alertas de Pánico en Tiempo Real</h2>
+                    <span id="contador-panico" class="text-sm text-red-500 font-medium">Cargando...</span>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-red-100 text-red-700 uppercase text-xs font-bold tracking-wider">
+                                <th class="p-4">Fecha y Hora</th>
+                                <th class="p-4">DNI</th>
+                                <th class="p-4">Usuario / Apellidos</th>
+                                <th class="p-4">Teléfono</th>
+                                <th class="p-4 text-center">Ubicación de Emergencia</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-panico" class="divide-y divide-slate-100 text-sm text-slate-700"></tbody>
+                    </table>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Script de Lógica con Alerta Sonora y Conteo Automático -->
+    <script>
+        const URL_API = "https://script.google.com/macros/s/AKfycbwRuiTZtdcAjNAfNo0TvtHm9pss_yC6arEdQQfdbxBCNAM6o2GZPaTpjNrwcaruyhzLvw/exec";
+        let vistaActual = "reportes";
+        let totalAnteriorRep = -1;
+        let totalAnteriorPan = -1;
+        let intervaloMonitoreo = null;
+
+        function reproducirSonidoAlerta() {
+            try {
+                // Genera un pitido electrónico de alerta nativo sin necesidad de archivos externos
+                let ctx = new (window.AudioContext || window.webkitAudioContext)();
+                let osc = ctx.createOscillator();
+                let gain = ctx.createGain();
+                osc.type = "sine";
+                osc.frequency.value = 880; // Frecuencia de alerta
+                gain.gain.setValueAtTime(0.1, ctx.currentTime);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.4);
+            } catch(e) {}
+        }
+
+        function validarLogin(e) {
+            e.preventDefault();
+            let u = document.getElementById("usuario").value;
+            let p = document.getElementById("password").value;
+            let errorMsg = document.getElementById("error-msg");
+
+            if (u === "joan" && p === "090520") {
+                document.getElementById("login-screen").classList.add("hidden");
+                document.getElementById("dashboard-screen").classList.remove("hidden");
+                document.getElementById("dashboard-screen").classList.add("flex");
+                cargarDatos();
+                // Inicia el sondeo automático cada 10 segundos
+                intervaloMonitoreo = setInterval(cargarDatos, 10000);
+            } else {
+                errorMsg.classList.remove("hidden");
+            }
+        }
+
+        function cerrarSesion() {
+            clearInterval(intervaloMonitoreo);
+            document.getElementById("dashboard-screen").classList.add("hidden");
+            document.getElementById("dashboard-screen").classList.remove("flex");
+            document.getElementById("login-screen").classList.remove("hidden");
+            document.getElementById("usuario").value = "";
+            document.getElementById("password").value = "";
+            document.getElementById("error-msg").classList.add("hidden");
+            totalAnteriorRep = -1;
+            totalAnteriorPan = -1;
+        }
+
+        function cambiarVista(vista) {
+            vistaActual = vista;
+            let secRep = document.getElementById("seccion-reportes");
+            let secPan = document.getElementById("seccion-panico");
+            let btnRep = document.getElementById("btn-tab-reportes");
+            let btnPan = document.getElementById("btn-tab-panico");
+
+            if (vista === "reportes") {
+                secRep.classList.remove("hidden");
+                secPan.classList.add("hidden");
+                btnRep.className = "relative bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow";
+                btnPan.className = "relative bg-slate-700 text-slate-300 px-4 py-2 rounded-lg text-sm font-semibold transition hover:bg-slate-600";
+            } else {
+                secPan.classList.remove("hidden");
+                secRep.classList.add("hidden");
+                btnPan.className = "relative bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow";
+                btnRep.className = "relative bg-slate-700 text-slate-300 px-4 py-2 rounded-lg text-sm font-semibold transition hover:bg-slate-600";
+            }
+        }
+
+        async function cargarDatos() {
+            try {
+                let proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(URL_API)}`;
+                let respuesta = await fetch(proxyUrl);
+                let datos = await respuesta.json();
+
+                let cantRep = datos.reportes.length;
+                let cantPan = datos.panico.length;
+
+                // Detectar si hay nuevos registros para activar sonido y aviso visual
+                if ((totalAnteriorRep !== -1 && cantRep > totalAnteriorRep) || (totalAnteriorPan !== -1 && cantPan > totalAnteriorPan)) {
+                    reproducirSonidoAlerta();
+                    document.getElementById("badge-alerta").classList.remove("hidden");
+                }
+
+                totalAnteriorRep = cantRep;
+                totalAnteriorPan = cantPan;
+
+                // Actualizar contadores en botones
+                document.getElementById("num-rep").innerText = cantRep;
+                document.getElementById("num-pan").innerText = cantPan;
+
+                // 1. Cargar Reportes
+                const tbodyRep = document.getElementById("tabla-reportes");
+                document.getElementById("contador-reportes").innerText = `Total: ${cantRep}`;
+                tbodyRep.innerHTML = "";
+
+                if (cantRep === 0) {
+                    tbodyRep.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-slate-400">No hay reportes registrados.</td></tr>`;
+                } else {
+                    datos.reportes.forEach(repo => {
+                        tbodyRep.innerHTML += `
+                            <tr class="hover:bg-slate-50 transition">
+                                <td class="p-4 font-medium text-slate-600">${repo.fecha}</td>
+                                <td class="p-4 font-bold text-slate-900">${repo.ciudadano}</td>
+                                <td class="p-4">${repo.telefono}</td>
+                                <td class="p-4 max-w-xs truncate">${repo.descripcion}</td>
+                                <td class="p-4 text-center">
+                                    <a href="${repo.mapa}" target="_blank" class="inline-block bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-emerald-200 transition">📍 Ver Mapa</a>
+                                </td>
+                                <td class="p-4 text-center">
+                                    ${repo.foto.startsWith("http") ? `<a href="${repo.foto}" target="_blank" class="inline-block bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-indigo-200 transition">🖼️ Ver Foto</a>` : `<span class="text-slate-400 text-xs italic">Sin foto</span>`}
+                                </td>
+                            </tr>`;
+                    });
+                }
+
+                // 2. Cargar Pánico
+                const tbodyPan = document.getElementById("tabla-panico");
+                document.getElementById("contador-panico").innerText = `Total alertas: ${cantPan}`;
+                tbodyPan.innerHTML = "";
+
+                if (cantPan === 0) {
+                    tbodyPan.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-slate-400">No hay alertas de pánico registradas.</td></tr>`;
+                } else {
+                    datos.panico.forEach(pan => {
+                        tbodyPan.innerHTML += `
+                            <tr class="hover:bg-red-50 transition">
+                                <td class="p-4 font-medium text-red-600">${pan.fecha}</td>
+                                <td class="p-4 font-bold text-slate-900">${pan.dni}</td>
+                                <td class="p-4">${pan.usuario}</td>
+                                <td class="p-4">${pan.telefono}</td>
+                                <td class="p-4 text-center">
+                                    <a href="${pan.mapa}" target="_blank" class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">🚨 Ver Emergencia GPS</a>
+                                </td>
+                            </tr>`;
+                    });
+                }
+
+            } catch (error) {
+                console.error("Error actualizando datos:", error);
+            }
+        }
+    </script>
+</body>
+</html>
