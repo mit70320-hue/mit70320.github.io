@@ -75,6 +75,8 @@
                                 <th class="p-4">Descripción</th>
                                 <th class="p-4 text-center">Ubicación GPS</th>
                                 <th class="p-4 text-center">Evidencia Fotográfica</th>
+                                <th class="p-4 text-center">Estado</th>
+                                <th class="p-4 text-center">Acción</th>
                             </tr>
                         </thead>
                         <tbody id="tabla-reportes" class="divide-y divide-slate-100 text-sm text-slate-700"></tbody>
@@ -97,6 +99,8 @@
                                 <th class="p-4">Usuario / Apellidos</th>
                                 <th class="p-4">Teléfono</th>
                                 <th class="p-4 text-center">Ubicación de Emergencia</th>
+                                <th class="p-4 text-center">Estado</th>
+                                <th class="p-4 text-center">Acción</th>
                             </tr>
                         </thead>
                         <tbody id="tabla-panico" class="divide-y divide-slate-100 text-sm text-slate-700"></tbody>
@@ -111,24 +115,96 @@
     <script>
         const URL_API = "https://script.google.com/macros/s/AKfycbwRuiTZtdcAjNAfNo0TvtHm9pss_yC6arEdQQfdbxBCNAM6o2GZPaTpjNrwcaruyhzLvw/exec";
         let vistaActual = "reportes";
-        let totalAnteriorRep = -1;
-        let totalAnteriorPan = -1;
         let intervaloMonitoreo = null;
+        let audioCtx = null;
+        let sirenaIntervalo = null;
+        let dingIntervalo = null;
 
-        function reproducirSonidoAlerta() {
-            try {
-                // Genera un pitido electrónico de alerta nativo sin necesidad de archivos externos
-                let ctx = new (window.AudioContext || window.webkitAudioContext)();
-                let osc = ctx.createOscillator();
-                let gain = ctx.createGain();
+        // Sirena de PÁNICO: grave, en loop, hasta que alguien dé "Atender"
+        function reproducirSirenaPanico() {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = "square";
+            osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+            osc.frequency.setValueAtTime(660, audioCtx.currentTime + 0.3);
+            gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.6);
+        }
+
+        // Ding de REPORTE: agudo, distinto a la sirena, en loop más espaciado, hasta "Visto"
+        function reproducirDingReporte() {
+            if (!audioCtx) return;
+            const notas = [523.25, 783.99];
+            notas.forEach((freq, i) => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
                 osc.type = "sine";
-                osc.frequency.value = 880; // Frecuencia de alerta
-                gain.gain.setValueAtTime(0.1, ctx.currentTime);
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime + i * 0.15);
+                gain.gain.setValueAtTime(0.001, audioCtx.currentTime + i * 0.15);
+                gain.gain.exponentialRampToValueAtTime(0.3, audioCtx.currentTime + i * 0.15 + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + i * 0.15 + 0.35);
                 osc.connect(gain);
-                gain.connect(ctx.destination);
-                osc.start();
-                osc.stop(ctx.currentTime + 0.4);
-            } catch(e) {}
+                gain.connect(audioCtx.destination);
+                osc.start(audioCtx.currentTime + i * 0.15);
+                osc.stop(audioCtx.currentTime + i * 0.15 + 0.4);
+            });
+        }
+
+        function evaluarSirenaPanico(pendientes) {
+            const badge = document.getElementById("badge-alerta");
+            if (pendientes > 0) {
+                badge.classList.remove("hidden");
+                if (!sirenaIntervalo) {
+                    reproducirSirenaPanico();
+                    sirenaIntervalo = setInterval(reproducirSirenaPanico, 900);
+                }
+            } else {
+                badge.classList.add("hidden");
+                if (sirenaIntervalo) { clearInterval(sirenaIntervalo); sirenaIntervalo = null; }
+            }
+        }
+
+        function evaluarDingReportes(pendientes) {
+            if (pendientes > 0) {
+                if (!dingIntervalo) {
+                    reproducirDingReporte();
+                    dingIntervalo = setInterval(reproducirDingReporte, 2500);
+                }
+            } else {
+                if (dingIntervalo) { clearInterval(dingIntervalo); dingIntervalo = null; }
+            }
+        }
+
+        // Marcar una alerta de pánico como atendida (detiene la sirena si era la última pendiente)
+        function atenderAlerta(fila, boton) {
+            boton.disabled = true;
+            boton.innerText = "...";
+            fetch(URL_API, {
+                method: "POST",
+                headers: { "Content-Type": "text/plain;charset=utf-8" },
+                body: JSON.stringify({ destino: "atender", fila: fila })
+            }).then(cargarDatos).catch(() => {
+                boton.disabled = false;
+                boton.innerText = "Atender";
+            });
+        }
+
+        // Marcar un reporte como visto (detiene el ding si era el último pendiente)
+        function marcarVisto(fila, boton) {
+            boton.disabled = true;
+            boton.innerText = "...";
+            fetch(URL_API, {
+                method: "POST",
+                headers: { "Content-Type": "text/plain;charset=utf-8" },
+                body: JSON.stringify({ destino: "visto_reporte", fila: fila })
+            }).then(cargarDatos).catch(() => {
+                boton.disabled = false;
+                boton.innerText = "Visto";
+            });
         }
 
         function validarLogin(e) {
@@ -141,6 +217,9 @@
                 document.getElementById("login-screen").classList.add("hidden");
                 document.getElementById("dashboard-screen").classList.remove("hidden");
                 document.getElementById("dashboard-screen").classList.add("flex");
+                // El clic de "Ingresar" es el gesto del usuario que el navegador exige
+                // para permitir reproducir sonido. Se aprovecha aquí para desbloquearlo.
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 cargarDatos();
                 // Inicia el sondeo automático cada 10 segundos
                 intervaloMonitoreo = setInterval(cargarDatos, 10000);
@@ -151,14 +230,15 @@
 
         function cerrarSesion() {
             clearInterval(intervaloMonitoreo);
+            if (sirenaIntervalo) { clearInterval(sirenaIntervalo); sirenaIntervalo = null; }
+            if (dingIntervalo) { clearInterval(dingIntervalo); dingIntervalo = null; }
+            if (audioCtx) { audioCtx.close(); audioCtx = null; }
             document.getElementById("dashboard-screen").classList.add("hidden");
             document.getElementById("dashboard-screen").classList.remove("flex");
             document.getElementById("login-screen").classList.remove("hidden");
             document.getElementById("usuario").value = "";
             document.getElementById("password").value = "";
             document.getElementById("error-msg").classList.add("hidden");
-            totalAnteriorRep = -1;
-            totalAnteriorPan = -1;
         }
 
         function cambiarVista(vista) {
@@ -183,20 +263,16 @@
 
         async function cargarDatos() {
             try {
-               let respuesta = await fetch(URL_API);
+                let respuesta = await fetch(URL_API);
                 let datos = await respuesta.json();
 
                 let cantRep = datos.reportes.length;
                 let cantPan = datos.panico.length;
+                let pendientesRep = datos.reportes.filter(r => r.estado !== "visto").length;
+                let pendientesPan = datos.panico.filter(p => p.estado !== "atendida").length;
 
-                // Detectar si hay nuevos registros para activar sonido y aviso visual
-                if ((totalAnteriorRep !== -1 && cantRep > totalAnteriorRep) || (totalAnteriorPan !== -1 && cantPan > totalAnteriorPan)) {
-                    reproducirSonidoAlerta();
-                    document.getElementById("badge-alerta").classList.remove("hidden");
-                }
-
-                totalAnteriorRep = cantRep;
-                totalAnteriorPan = cantPan;
+                evaluarSirenaPanico(pendientesPan);
+                evaluarDingReportes(pendientesRep);
 
                 // Actualizar contadores en botones
                 document.getElementById("num-rep").innerText = cantRep;
@@ -208,11 +284,12 @@
                 tbodyRep.innerHTML = "";
 
                 if (cantRep === 0) {
-                    tbodyRep.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-slate-400">No hay reportes registrados.</td></tr>`;
+                    tbodyRep.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-slate-400">No hay reportes registrados.</td></tr>`;
                 } else {
                     datos.reportes.forEach(repo => {
+                        const visto = repo.estado === "visto";
                         tbodyRep.innerHTML += `
-                            <tr class="hover:bg-slate-50 transition">
+                            <tr class="hover:bg-slate-50 transition ${!visto ? 'bg-amber-50' : ''}">
                                 <td class="p-4 font-medium text-slate-600">${repo.fecha}</td>
                                 <td class="p-4 font-bold text-slate-900">${repo.ciudadano}</td>
                                 <td class="p-4">${repo.telefono}</td>
@@ -221,7 +298,13 @@
                                     <a href="${repo.mapa}" target="_blank" class="inline-block bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-emerald-200 transition">📍 Ver Mapa</a>
                                 </td>
                                 <td class="p-4 text-center">
-                                    ${repo.foto.startsWith("http") ? `<a href="${repo.foto}" target="_blank" class="inline-block bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-indigo-200 transition">🖼️ Ver Foto</a>` : `<span class="text-slate-400 text-xs italic">Sin foto</span>`}
+                                    ${repo.foto && repo.foto.startsWith("http") ? `<a href="${repo.foto}" target="_blank" class="inline-block bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-indigo-200 transition">🖼️ Ver Foto</a>` : `<span class="text-slate-400 text-xs italic">Sin foto</span>`}
+                                </td>
+                                <td class="p-4 text-center">
+                                    <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold ${visto ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">${visto ? 'VISTO' : 'NUEVO'}</span>
+                                </td>
+                                <td class="p-4 text-center">
+                                    ${visto ? '—' : `<button onclick="marcarVisto(${repo.fila}, this)" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1 rounded-lg text-xs font-semibold transition">Visto</button>`}
                                 </td>
                             </tr>`;
                     });
@@ -233,17 +316,24 @@
                 tbodyPan.innerHTML = "";
 
                 if (cantPan === 0) {
-                    tbodyPan.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-slate-400">No hay alertas de pánico registradas.</td></tr>`;
+                    tbodyPan.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-400">No hay alertas de pánico registradas.</td></tr>`;
                 } else {
                     datos.panico.forEach(pan => {
+                        const atendida = pan.estado === "atendida";
                         tbodyPan.innerHTML += `
-                            <tr class="hover:bg-red-50 transition">
+                            <tr class="hover:bg-red-50 transition ${!atendida ? 'bg-red-50' : ''}">
                                 <td class="p-4 font-medium text-red-600">${pan.fecha}</td>
                                 <td class="p-4 font-bold text-slate-900">${pan.dni}</td>
                                 <td class="p-4">${pan.usuario}</td>
                                 <td class="p-4">${pan.telefono}</td>
                                 <td class="p-4 text-center">
                                     <a href="${pan.mapa}" target="_blank" class="inline-block bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-200 transition">🚨 Ver Emergencia GPS</a>
+                                </td>
+                                <td class="p-4 text-center">
+                                    <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold ${atendida ? 'bg-emerald-100 text-emerald-800' : 'bg-red-200 text-red-900'}">${atendida ? 'ATENDIDA' : 'PENDIENTE'}</span>
+                                </td>
+                                <td class="p-4 text-center">
+                                    ${atendida ? '—' : `<button onclick="atenderAlerta(${pan.fila}, this)" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded-lg text-xs font-semibold transition">Atender</button>`}
                                 </td>
                             </tr>`;
                     });
